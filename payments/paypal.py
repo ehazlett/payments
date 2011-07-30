@@ -30,7 +30,7 @@ class AdaptivePaymentsAPI(object):
 
     """
     def __init__(self, api_username=None, api_password=None, api_signature=None, app_id='default', \
-        cancel_url=None, return_url=None, ipn_url=None, debug=False):
+        cancel_url=None, return_url=None, ipn_url=None, api_error_lang='en_US', debug=False):
         """
         AdaptivePayments API 
 
@@ -41,6 +41,7 @@ class AdaptivePaymentsAPI(object):
         :keyword cancel_url: Url used for canceling payments
         :keyword return_url: Url used when PayPal redirects users back to site
         :keyword ipn_url: Url used for Instant Payment notification
+        :keyword api_error_lang: Language used for error responses (default en_US)
         :keyword debug: Sets the url to the PayPal sandbox url (default False)
 
         """
@@ -57,6 +58,7 @@ class AdaptivePaymentsAPI(object):
         self.__api_cancel_url = cancel_url
         self.__api_return_url = return_url
         self.__api_ipn_url = ipn_url
+        self.__api_error_lang = api_error_lang
         if debug:
             self.__api_base_url = 'https://svcs.sandbox.paypal.com/AdaptivePayments'
         else:
@@ -87,6 +89,7 @@ class AdaptivePaymentsAPI(object):
         data['cancelUrl'] = self.__api_cancel_url
         data['returnUrl'] = self.__api_return_url
         data['ipnNotificationUrl'] = self.__api_ipn_url
+        data['requestEnvelope.errorLanguage'] = self.__api_error_lang
         params = urllib.urlencode(data)
         resp, content = http.request(url, method, params, headers=headers)
         data = {}
@@ -107,7 +110,6 @@ class AdaptivePaymentsAPI(object):
         if not pay_key:
             raise PayPalError('You must specify a pay_key')
         data = {
-            'requestEnvelope.errorLanguage': 'en_US',
             'payKey': pay_key,
         }
         resp, cont = self.do_request(action='PaymentDetails', data=data)
@@ -133,7 +135,6 @@ class AdaptivePaymentsAPI(object):
         if not preapproval_key:
             raise PayPalError('You must specify a preapproval_key')
         data = {
-            'requestEnvelope.errorLanguage': 'en_US',
             'preapprovalKey': preapproval_key,
         }
         resp, cont = self.do_request(action='PreapprovalDetails', data=data)
@@ -150,7 +151,7 @@ class AdaptivePaymentsAPI(object):
 
     def request_payment(self, currency='USD', sender_email=None, receivers={}, memo=''):
         """
-        Requests a simple payment from the sender and returns the payment ID
+        Requests a simple payment from the sender
 
         :keyword currency: Type of currency (default USD)
         :keyword sender_email: Email address of sender
@@ -163,21 +164,64 @@ class AdaptivePaymentsAPI(object):
         if not sender_email or len(receivers) == 0:
             raise PayPalError('You must specify a url, sender_email, and receivers')
         data = {
-            'requestEnvelope.errorLanguage': 'en_US',
             'actionType': 'PAY',
             'senderEmail': sender_email,
             'currencyCode': currency,
             'feesPayer': 'EACHRECEIVER',
             'memo': memo,
-            'cancelUrl': self.__api_cancel_url,
-            'returnUrl': self.__api_return_url,
-            'ipnNotificationUrl': self.__api_ipn_url,
         }
         # build receivers
         i = 0
         for k,v in receivers.iteritems():
             data['receiverList.receiver({0}).email'.format(i)] = k
             data['receiverList.receiver({0}).amount'.format(i)] = v
+        resp, cont = self.do_request(action='Pay', data=data)
+        if 'responseEnvelope.ack' not in cont:
+            raise PayPalError('Error: Invalid PayPal response: {0}'.format(cont))
+        if cont['responseEnvelope.ack'].lower() != 'success':
+            errors = []
+            for k,v in cont.iteritems():
+                if k.find('error') > -1 and k.find('message') > -1:
+                    v = urllib.unquote_plus(v)
+                    errors.append(v.replace('+', ' '))
+            raise PayPalError('Error requesting payment: {0}'.format('. '.join(errors)))
+        return cont
+
+    def do_preapproval_payment(self, currency='USD', sender_email=None, preapproval_key=None, receivers={}, \
+        memo=''):
+        """
+        Issues a pre-approved payment (no login)
+
+        :keyword currency: Type of currency (default USD)
+        :keyword sender_email: Email address of sender
+        :keyword preapproval_key: Key from the pre-approval agreement
+        :keyword receivers: dict of receivers -- format must be the following:
+            receiver_email_address: amount -- i.e.  receivers['receiver@domain.com'] = 200
+            Note: first receiver is used as primary
+        :keyword memo: Note to user
+        :rtype: response as dict
+
+        """
+        if not sender_email or not preapproval_key or len(receivers) == 0:
+            raise PayPalError('You must specify a sender_email, preapproval_key, and receivers')
+        data = {
+            'actionType': 'PAY', 
+            'senderEmail': sender_email,
+            'currencyCode': currency,
+            'feesPayer': 'EACHRECEIVER',
+            'memo': memo,
+            'reverseAllParallelPaymentsOnError': 'true',
+        }
+        # build receivers
+        i = 0
+        for k,v in receivers.iteritems():
+            data['receiverList.receiver({0}).email'.format(i)] = k
+            data['receiverList.receiver({0}).amount'.format(i)] = v
+            if len(receivers) > 1:
+                if i == 0:
+                    data['receiverList.receiver(0).primary'] = 'true'
+                else:
+                    data['receiverList.receiver({0}).primary'.format(i)] = 'false'
         resp, cont = self.do_request(action='Pay', data=data)
         if 'responseEnvelope.ack' not in cont:
             raise PayPalError('Error: Invalid PayPal response: {0}'.format(cont))
@@ -212,7 +256,6 @@ class AdaptivePaymentsAPI(object):
                 raise PayPalError("""You must specify sender_email, max_amount_per_payment, """
                     """max_number_of_payments, ending_date, and max_total_amount_of_payments""")
         data = {
-            'requestEnvelope.errorLanguage': 'en_US',
             'actionType': 'Preapproval',
             'currencyCode': currency,
             'startingDate': starting_date,
@@ -237,4 +280,71 @@ class AdaptivePaymentsAPI(object):
             raise PayPalError('Error requesting payment: {0}'.format('. '.join(errors)))
         return cont
 
+class ExpressCheckoutAPI(object):
+    """
+    Express Checkout
 
+    """
+    def __init__(self, api_username=None, api_password=None, api_signature=None, cancel_url=None, \
+        return_url=None, ipn_url=None, api_version='63.0', debug=False):
+        """
+        Express Checkout API 
+
+        :keyword api_user: PayPal API username
+        :keyword api_password: PayPal API password
+        :keyword api_signature: PayPal API signature
+        :keyword cancel_url: Url used for canceling payments
+        :keyword return_url: Url used when PayPal redirects users back to site
+        :keyword ipn_url: Url used for Instant Payment notification
+        :keyword api_version: Version of the PayPal API to use (default 63.0)
+        :keyword debug: Sets the url to the PayPal sandbox url (default False)
+
+        """
+        if not api_username or not api_password or not api_signature or not cancel_url \
+            or not return_url or not ipn_url:
+            raise PayPalError("""You must specify an api_username, api_password, """
+                """api_signature, cancel_url, return_url, and ipn_url""")
+        self.__api_username = api_username
+        self.__api_password = api_password
+        self.__api_signature = api_signature
+        self.__api_version = api_version
+        self.__api_cancel_url = cancel_url
+        self.__api_return_url = return_url
+        self.__api_ipn_url = ipn_url
+        if debug:
+            self.__api_base_url = 'https://api-3t.sandbox.paypal.com/nvp'
+        else:
+            self.__api_base_url = 'https://api-3t.paypal.com/nvp'
+    
+    def do_request(self, method=None, data={}):
+        """
+        Makes a PayPal Express Checkout API request with the specified params
+        
+        :keyword method: Type of method (i.e. DoDirectPayment, etc.) 
+        :keyword data: Data to send as dict
+        :rtype: response and content as tuple (response, content)
+        
+        """
+        if not method or not data:
+            raise PayPalError('You must specify a method and data')
+        url = '{0}'.format(self.__api_base_url)
+        http = httplib2.Http()
+        headers = {
+        }
+        req_method = 'POST'
+        data['METHOD'] = method
+        data['VERSION'] = self.__api_version
+        data['USER'] = self.__api_username
+        data['PWD'] = self.__api_password
+        data['SIGNATURE'] = self.__api_signature
+        data['RETURNURL'] = self.__api_return_url
+        data['CANCELURL'] = self.__api_cancel_url
+        params = urllib.urlencode(data)
+        resp, content = http.request(url, req_method, params, headers=headers)
+        data = {}
+        if content.find('&') > -1:
+            for x in content.split('&'):
+                k,v = x.split('=')
+                data[k] = urllib.unquote_plus(v)
+        return (resp, data)
+    

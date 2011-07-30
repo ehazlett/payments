@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import unittest
-from payments.paypal import AdaptivePaymentsAPI
+from payments.paypal import AdaptivePaymentsAPI, ExpressCheckoutAPI
 from datetime import datetime, timedelta
 try:
     from payments import local_settings
@@ -13,7 +13,7 @@ class TestAdaptivePaymentsAPI(unittest.TestCase):
         self.api_username = getattr(local_settings, 'API_USERNAME', None)
         self.api_password = getattr(local_settings, 'API_PASSWORD', None)
         self.api_signature = getattr(local_settings, 'API_SIGNATURE', None)
-        self.api_app_id = 'APP-80W284485P519543T' # PayPal sandbox test app ID (same for everyone)
+        self.api_app_id = getattr(local_settings, 'API_APP_ID', None)
         self.adaptive_api = AdaptivePaymentsAPI(self.api_username, self.api_password, \
             self.api_signature, self.api_app_id, 'http://site.com', 'http://site.com', \
             'http://site.com', debug=True)
@@ -54,6 +54,31 @@ class TestAdaptivePaymentsAPI(unittest.TestCase):
             max_amount_per_payment=200, max_number_of_payments=60, max_total_amount_of_payments=5000)
         self.assertEqual(resp['responseEnvelope.ack'].lower(), 'success')
         self.assertTrue(resp.has_key('preapprovalKey'))
+
+class TestExpressCheckoutAPI(unittest.TestCase):
+    def setUp(self):
+        self.api_username = getattr(local_settings, 'API_USERNAME', None)
+        self.api_password = getattr(local_settings, 'API_PASSWORD', None)
+        self.api_signature = getattr(local_settings, 'API_SIGNATURE', None)
+        self.api = ExpressCheckoutAPI(self.api_username, self.api_password, self.api_signature,\
+            'http://site.com', 'http://site.com', 'http://site.com', debug=True)
+
+    def test_set_express_checkout(self):
+        vars = {
+            'MAXAMT': 50,
+            'NOSHIPPING': 1,
+            'ALLOWNOTE': 0,
+            'SOLUTIONTYPE': 'Mark',
+            'PAYMENTREQUEST_0_AMT': 0,
+            'PAYMENTREQUEST_0_PAYMENTACTION': 'Authorization',
+            'L_PAYMENTREQUEST_0_ITEMCATEGORY0': 'Digital',
+            'L_BILLINGTYPE0': 'RecurringPayments',
+            'L_BILLINGAGREEMENTDESCRIPTION0': 'AppHosted service',
+        }
+        resp, cont = self.api.do_request('SetExpressCheckout', vars)
+        self.assertTrue(cont.has_key('ACK'))
+        self.assertEqual(cont['ACK'].lower(), 'success')
+        self.assertTrue(cont.has_key('TOKEN'))
 
 if __name__=='__main__':
     unittest.main()
