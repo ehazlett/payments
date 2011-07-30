@@ -1,5 +1,0 @@
-API_CONFIG = {
-    'api_username': '',
-    'api_password': '',
-    'api_signature': '',
-}
