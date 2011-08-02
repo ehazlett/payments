@@ -2,7 +2,9 @@
 
 import unittest
 from payments.paypal import AdaptivePaymentsAPI, ExpressCheckoutAPI
+from payments.amazon import FlexiblePaymentsService
 from datetime import datetime, timedelta
+import uuid
 try:
     from payments import local_settings
 except ImportError:
@@ -79,6 +81,27 @@ class TestExpressCheckoutAPI(unittest.TestCase):
         self.assertTrue(cont.has_key('ACK'))
         self.assertEqual(cont['ACK'].lower(), 'success')
         self.assertTrue(cont.has_key('TOKEN'))
+
+class TestFlexiblePaymentsService(unittest.TestCase):
+    def setUp(self):
+        self.api_username = getattr(local_settings, 'AWS_ACCESS_KEY_ID', None)
+        self.api_password = getattr(local_settings, 'AWS_SECRET_ACCESS_KEY', None)
+        self.api = FlexiblePaymentsService(self.api_username, self.api_password, debug=True)
+
+    def test_get_authorization_url(self):
+        data = {}
+        data['returnURL'] = 'https://metro-dev.apphosted.com/billing/notify'
+        print(self.api.get_authorization_url('MultiUse', '1.0', 'Minimum', '12345', \
+            '1000', 'Newservice', data))
+
+    def test_sign(self):
+        data = {}
+        data['CallerReference'] = str(uuid.uuid4())
+        signed_data = self.api._sign(self.api.get_endpoint_host(self.api.get_api_endpoint()), '/', data)
+        self.assertNotEqual(signed_data, None)
+    
+    def test_pay(self):
+        pass
 
 if __name__=='__main__':
     unittest.main()
