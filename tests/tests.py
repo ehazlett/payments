@@ -13,6 +13,7 @@ import uuid
 try:
     import local_settings
 except ImportError:
+    print('** local_settings module not found ; tests connection to external APIs will fail...')
     pass
 
 class TestAdaptivePaymentsAPI(unittest.TestCase):

@@ -165,6 +165,9 @@ class FlexiblePaymentsService(object):
         data['callerKey'] = self.__api_username
         data['signatureMethod'] = 'HmacSHA256'
         data['signatureVersion'] = '2'
+        if isinstance(data, dict) and len(data) > 0:
+            for k,v in data.iteritems():
+                data[k] = str(v)
         ep_host = self._get_endpoint_host(self.__api_cbservice_url)
         data['signature'] = self._sign(ep_host, '/cobranded-ui/actions/start', data)
         params = urllib.urlencode(sorted(data.items()))

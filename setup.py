@@ -6,7 +6,7 @@ import sys
 REQUIRES = []
 
 setup(name='payments',
-    version = '0.01',
+    version = '0.02',
     author = 'Evan Hazlett',
     author_email = 'ejhazlett@gmail.com',
     packages = ['payments'],
@@ -15,7 +15,7 @@ setup(name='payments',
     license = 'License :: OSI Approved :: Apache Software License',
     long_description = """
     This is a wrapper library that helps in working with online payment systems
-    like PayPal.
+    like PayPal and Amazon FPS.
     """,
     download_url = 'https://github.com/ehazlett/payments/tarball/master',
     install_requires = REQUIRES,
