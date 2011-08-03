@@ -16,17 +16,46 @@
 import httplib2
 import urllib
 import logging
+import uuid
 from datetime import datetime, timedelta
+import time
 import hashlib
 from hashlib import sha256
 import base64
 import hmac
+import xml.parsers.expat
 
 class AmazonError(Exception):
     def __init__(self, value):
         self.value = value
     def __str__(self):
         return repr(self.value)
+
+class FPSResponseParser(object):
+    def __init__(self, data):
+        self.__data = data
+        self.__parsed_data = {}
+        self.__cur_node = None
+        self.__parser = xml.parsers.expat.ParserCreate()
+        self.__parser.StartElementHandler = self.start_element
+        self.__parser.CharacterDataHandler = self.char_data
+        self.__parser.EndElementHandler = self.end_element
+        self._parse()
+
+    def _parse(self):
+        self.__parser.Parse(self.__data, 1)
+
+    def start_element(self, name, attrs):
+        self.__cur_node = name
+
+    def char_data(self, data):
+        self.__parsed_data[str(self.__cur_node)] = data
+
+    def end_element(self, name):
+        pass
+
+    def get_data(self):
+        return self.__parsed_data
 
 class FlexiblePaymentsService(object):
     """
@@ -57,24 +86,21 @@ class FlexiblePaymentsService(object):
             self.__api_cbservice_url = 'https://authorize.payments.amazon.com/cobranded-ui/actions/start'
 
 
+    def _get_endpoint_host(self, url=None): return url.replace('https://', '').split('/')[0]
+
+    def _parse_response(self, data):
+        """
+        Parses a response from the FPS API
+
+        """
+        p = FPSResponseParser(data)
+        return p.get_data()
+
     def _sign(self, endpoint_host=None, base_url='/', params={}):
         """
         Signs a url for FPS
 
         """
-        #param_str = 'GET\n'
-        #param_str = endpoint_host.lower() + '\n'
-        #param_str = '{0}\n'.format(base_url)
-
-        #print(param_str)
-        #def quote(thing): return urllib.quote(str(thing), '')
-        #param_str += '&'.join( quote(i[0]) + '=' + quote(i[1]) for i in sorted(params.items()))
-        #hmac256 = hmac.new(self.__api_password, digestmod=sha256)
-        #hmac256.update(param_str)
-        #sig = base64.encodestring(hmac256.digest()).strip()
-        ##sig = base64.b64encode(hmac.new(self.__api_password, param_str, hashlib.sha256).digest())
-        #print(sig)
-        #return sig
         parts = ''
         for k in sorted(params.keys()):
             parts += '&%s=%s' % (str(k), urllib.quote(str(params[k]), '~'))
@@ -85,7 +111,38 @@ class FlexiblePaymentsService(object):
         return sig
 
     def get_api_endpoint(self): return self.__api_base_url
-    def get_endpoint_host(self, url=None): return url.replace('https://', '').split('/')[0]
+
+    def do_request(self, action=None, data={}):
+        """
+        Makes a PayPal AdaptivePayments API request with the specified params
+        
+        :keyword action: Type of action (i.e. Pay, Preapproval, etc.)
+        :keyword data: Data to send as dict
+        :rtype: response and content as tuple (response, content)
+        
+        """
+        if not action:
+            raise PayPalError('You must specify an action')
+        url = '{0}/?'.format(self.__api_base_url)
+        http = httplib2.Http()
+        headers = {
+        }
+        method = 'GET'
+        data['Action'] = str(action)
+        data['AWSAccessKeyId'] = str(self.__api_username)
+        data['Version'] = str(self.__api_version)
+        data['Timestamp'] = str(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        data['SignatureMethod'] = 'HmacSHA256'
+        data['SignatureVersion'] = '2'
+        sig = self._sign(self._get_endpoint_host(self.__api_base_url), '/', data)
+        data['Signature'] = sig
+        params = ''
+        for k in sorted(data.keys()):
+            params += '&%s=%s' % (str(k), urllib.quote(str(data[k]), '~'))
+        #print('URL: {0}'.format(url+params))
+        resp, content = http.request(url+params, method, headers=headers)
+        return (resp, content)
+    
 
     def get_authorization_url(self, token_type=None, transaction_amount=None, \
         amount_type=None, caller_reference=None, global_amount_limit='10000', payment_reason='',\
@@ -108,43 +165,51 @@ class FlexiblePaymentsService(object):
         data['callerKey'] = self.__api_username
         data['signatureMethod'] = 'HmacSHA256'
         data['signatureVersion'] = '2'
-        ep_host = self.get_endpoint_host(self.__api_cbservice_url)
+        ep_host = self._get_endpoint_host(self.__api_cbservice_url)
         data['signature'] = self._sign(ep_host, '/cobranded-ui/actions/start', data)
         params = urllib.urlencode(sorted(data.items()))
         return self.__api_cbservice_url + '?' + params
     
-    def do_request(self, action=None, data={}):
+
+    def get_transaction_status(self, transaction_id=None):
         """
-        Makes a PayPal AdaptivePayments API request with the specified params
-        
-        :keyword action: Type of action (i.e. Pay, Preapproval, etc.)
-        :keyword data: Data to send as dict
-        :rtype: response and content as tuple (response, content)
-        
+        Returns the status of the FPS transaction
+
+        :keyword transaction_id: Transaction ID to check
+        :rtype: status as dict
+
         """
-        if not action:
-            raise PayPalError('You must specify an action')
-        url = '{0}/?'.format(self.__api_base_url)
-        http = httplib2.Http()
-        headers = {
-        }
-        method = 'GET'
-        data['Action'] = action
-        data['AWSAccessKeyId'] = self.__api_username
-        data['Version'] = self.__api_version
-        data['Timestamp'] = datetime.now().isoformat()
-        sig = self._sign(self.get_endpoint_host(self.__api_base_url), '/', data)
-        data['Signature'] = sig
-        data['SignatureMethod'] = 'HmacSHA256'
-        data['SignatureVersion'] = 2
-        params = urllib.urlencode(sorted(data.keys()))
-        print(url + params)
-        resp, content = http.request(url+params, method, headers=headers)
-        print(resp, content)
+        if not transaction_id:
+            raise AmazonError('You must specify a transaction_id')
         data = {}
-        if content.find('&') > -1:
-            for x in content.split('&'):
-                k,v = x.split('=')
+        data['TransactionId'] = transaction_id
+        resp, cont = self.do_request('GetTransactionStatus', data)
+        return self._parse_response(cont)
+
+    def pay(self, sender_token_id=None, transaction_amount=None, currency='USD', \
+        caller_reference=None, sender_description='', params={}):
+        """
+        Issues an FPS payment
+
+        :keyword sender_token_id: Sender token used in transaction 
+            (obtained from Co-Branded service request)
+        :keyword transaction_amount: Amount to charge
+        :keyword caller_reference: Value to identify request
+        :keyword sender_description: Description or note for transaction
+        :keyword params: Optional parameters to send as dict
+
+        """
+        if not sender_token_id or not transaction_amount:
+            raise AmazonError('You must specify a sender_token_id and transaction_amount')
+        data = {}
+        data['SenderTokenId'] = sender_token_id
+        data['TransactionAmount.CurrencyCode'] = currency
+        data['TransactionAmount.Value'] = transaction_amount
+        if not caller_reference:
+            caller_reference = str(uuid.uuid4())
+        data['CallerReference'] = caller_reference
+        if isinstance(params, dict) and len(params) > 0:
+            for k,v in params.iteritems():
                 data[k] = v
-        return (resp, data)
-    
+        resp, cont = self.do_request('Pay', data)
+        return self._parse_response(cont)

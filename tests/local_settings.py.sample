@@ -1,0 +1,8 @@
+PAYPAL_API_USERNAME = None
+PAYPAL_API_PASSWORD = None
+PAYPAL_API_SIGNATURE = None
+PAYPAL_API_APP_ID = 'APP-80W284485P519543T' # default PayPal sandbox app id (the same for everyone)
+
+AWS_ACCESS_KEY_ID = ''
+AWS_SECRET_ACCESS_KEY = ''
+AWS_FPS_TEST_TOKEN_ID = '' # token ID obtained by authorizing a sandbox payment from the co-branded UI

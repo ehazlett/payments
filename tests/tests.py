@@ -1,21 +1,26 @@
 #!/usr/bin/env python
 
+import sys
+sys.path.insert(0, '../')
+
 import unittest
+import urllib2
+import cookielib
 from payments.paypal import AdaptivePaymentsAPI, ExpressCheckoutAPI
-from payments.amazon import FlexiblePaymentsService
+from payments.amazon import FlexiblePaymentsService, FPSResponseParser
 from datetime import datetime, timedelta
 import uuid
 try:
-    from payments import local_settings
+    import local_settings
 except ImportError:
     pass
 
 class TestAdaptivePaymentsAPI(unittest.TestCase):
     def setUp(self):
-        self.api_username = getattr(local_settings, 'API_USERNAME', None)
-        self.api_password = getattr(local_settings, 'API_PASSWORD', None)
-        self.api_signature = getattr(local_settings, 'API_SIGNATURE', None)
-        self.api_app_id = getattr(local_settings, 'API_APP_ID', None)
+        self.api_username = getattr(local_settings, 'PAYPAL_API_USERNAME', None)
+        self.api_password = getattr(local_settings, 'PAYPAL_API_PASSWORD', None)
+        self.api_signature = getattr(local_settings, 'PAYPAL_API_SIGNATURE', None)
+        self.api_app_id = getattr(local_settings, 'PAYPAL_API_APP_ID', None)
         self.adaptive_api = AdaptivePaymentsAPI(self.api_username, self.api_password, \
             self.api_signature, self.api_app_id, 'http://site.com', 'http://site.com', \
             'http://site.com', debug=True)
@@ -59,9 +64,9 @@ class TestAdaptivePaymentsAPI(unittest.TestCase):
 
 class TestExpressCheckoutAPI(unittest.TestCase):
     def setUp(self):
-        self.api_username = getattr(local_settings, 'API_USERNAME', None)
-        self.api_password = getattr(local_settings, 'API_PASSWORD', None)
-        self.api_signature = getattr(local_settings, 'API_SIGNATURE', None)
+        self.api_username = getattr(local_settings, 'PAYPAL_API_USERNAME', None)
+        self.api_password = getattr(local_settings, 'PAYPAL_API_PASSWORD', None)
+        self.api_signature = getattr(local_settings, 'PAYPAL_API_SIGNATURE', None)
         self.api = ExpressCheckoutAPI(self.api_username, self.api_password, self.api_signature,\
             'http://site.com', 'http://site.com', 'http://site.com', debug=True)
 
@@ -86,22 +91,44 @@ class TestFlexiblePaymentsService(unittest.TestCase):
     def setUp(self):
         self.api_username = getattr(local_settings, 'AWS_ACCESS_KEY_ID', None)
         self.api_password = getattr(local_settings, 'AWS_SECRET_ACCESS_KEY', None)
+        self.api_token_id = getattr(local_settings, 'AWS_FPS_TEST_TOKEN_ID', None)
         self.api = FlexiblePaymentsService(self.api_username, self.api_password, debug=True)
 
     def test_get_authorization_url(self):
         data = {}
         data['returnURL'] = 'https://metro-dev.apphosted.com/billing/notify'
-        print(self.api.get_authorization_url('MultiUse', '1.0', 'Minimum', '12345', \
-            '1000', 'Newservice', data))
+        url = self.api.get_authorization_url('MultiUse', '1.0', 'Minimum', '12345', \
+            '1000', 'Newservice', data)
+        cj = cookielib.CookieJar()
+        opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+        r = opener.open(url)
+        cont = r.read()
+        self.assertTrue(cont.find('Sign in with your Amazon account') > -1)
+        self.assertTrue(cont.find('What is your e-mail address?') > -1)
+
+    def test_get_transaction_status(self):
+        resp = self.api.pay(self.api_token_id, '10.0', 'USD')
+        self.assertTrue(resp.has_key('TransactionId'))
+        t_id = resp['TransactionId']
+        resp = self.api.get_transaction_status(t_id)
+        self.assertTrue(resp.has_key('TransactionStatus'))
+        self.assertTrue(resp.has_key('StatusCode'))
+        self.assertTrue(resp.has_key('StatusMessage'))
+
+    def test_pay(self):
+        resp = self.api.pay(self.api_token_id, '25.0', 'USD')
+        # parse 
+        self.assertTrue(resp.has_key('TransactionId'))
+        self.assertTrue(resp.has_key('RequestId'))
+        self.assertTrue(resp.has_key('TransactionStatus'))
 
     def test_sign(self):
         data = {}
         data['CallerReference'] = str(uuid.uuid4())
-        signed_data = self.api._sign(self.api.get_endpoint_host(self.api.get_api_endpoint()), '/', data)
+        signed_data = self.api._sign(self.api._get_endpoint_host(self.api.get_api_endpoint()), '/', data)
         self.assertNotEqual(signed_data, None)
     
-    def test_pay(self):
-        pass
+
 
 if __name__=='__main__':
     unittest.main()

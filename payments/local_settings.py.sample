@@ -1,7 +1,0 @@
-API_USERNAME = None
-API_PASSWORD = None
-API_SIGNATURE = None
-API_APP_ID = 'APP-80W284485P519543T' # default PayPal sandbox app id (the same for everyone)
-
-AWS_ACCESS_KEY_ID = ''
-AWS_SECRET_ACCESS_KEY = ''
