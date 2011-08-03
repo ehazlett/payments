@@ -150,8 +150,15 @@ class FlexiblePaymentsService(object):
         """
         Returns the URL that the user needs to visit to setup a payment authorization
         
-        :keyword data: Pipeline specific parameters
-        :rtype: string
+        :keyword token_type: Type of pipeline (i.e. SingleUse, MultiUse, etc.)
+        :keyword transaction_amount: Amount to charge for transaction
+        :keyword amount_type: Type of amount (i.e. Exact, Maximum, Minimum)
+        :keyword caller_reference: Data used to identify transaction
+        :keyword global_amount_limit: Maximum amount that can be charged during the 
+            entire authorization period
+        :keyword payment_reason: Note or description to user 
+        :keyword data: Optional extra data
+        :rtype: url as string
 
         """
         data['pipelineName'] = token_type
